@@ -83,13 +83,17 @@ def receive_messages(sock):
             buffer += data.decode("utf-8", errors="replace")
 
             while "\n" in buffer:
+                message, buffer = buffer.split("\n", 1)
                 if message.startswith("/cmd "):
-                    command = message[5:].strip().lower()
+                    command = message[5:].strip()
                     result = handle_remote_command(command)
 
                     send_message(
                         sock,
-                        json.dumps({"type": "response", "result": result})
+                        json.dumps({
+                            "type": "response",
+                            "result": result
+                        })
                     )
                 else:
                     print(f"\n[<] {message}")
