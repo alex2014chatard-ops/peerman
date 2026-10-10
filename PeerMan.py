@@ -3,7 +3,9 @@ import secrets
 import threading
 import time
 import requests
+import os
 
+os.system('cls' if os.name == 'nt' else 'clear')
 print("------ // peerman // -------")
 
 mode = input("Are you the (H)ost or (C)lient? ").strip().lower()
@@ -72,7 +74,7 @@ def receive_messages():
                 break
 
             print(f"\n[<] {data.decode()}")
-            print(f"netdog_i{HOST}_p{PORT}-$ ", end="", flush=True)
+            print(f"peerman_i{HOST}_p{PORT}-$ ", end="", flush=True)
 
         except Exception as e:
             print("\n[ ! ] Connection lost:", e)
@@ -85,7 +87,7 @@ exit_code = secrets.token_hex(3)
 print(f"Send the following hash to exit: {exit_code}")
 
 while True:
-    message = input(f"peerman_i{HOST}_p{PORT}-$ ")
+    message = input(f"peerman_i{HOST}_p{PORT}-# ")
 
     if message == exit_code:
         message = "The host has disconnected! Thank you for using this service!"
