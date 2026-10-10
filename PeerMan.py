@@ -2,104 +2,142 @@ import socket
 import secrets
 import threading
 import time
-import requests
 import os
+import ipaddress
 
-os.system('cls' if os.name == 'nt' else 'clear')
+os.system("cls" if os.name == "nt" else "clear")
 print("------ // peerman // -------")
 
 mode = input("Are you the (H)ost or (C)lient? ").strip().lower()
 PORT = int(input("Enter a port (5000 or 5050 recommended): "))
 
+HOST = "0.0.0.0"
+server = None
+conn = None
 
-# Function to get public IP
-def get_public_ip():
+
+def is_private_ip(address):
     try:
-        return requests.get('https://api.ipify.org').text
-    except:
-        return "Unable to determine"
+        ip = ipaddress.ip_address(address)
+        return ip.version == 4 and ip.is_private
+    except ValueError:
+        return False
 
 
-if mode == 'h':
-    # HOST MODE
-    HOST = "0.0.0.0"
-    public_ip = get_public_ip()
+def send_message(sock, message):
+    # Newline-delimited messages
+    sock.sendall((message + "\n").encode("utf-8"))
 
-    print(r"=== HOST MODE ===")
-    print(f"Your Public IP: {public_ip}")
-    print(f"Port: {PORT}")
-    print("Share these with your peer to connect remotely.")
-    print("(Make sure to port forward on your router!)\n")
+
+def receive_messages(sock):
+    buffer = ""
+
+    try:
+        while True:
+            data = sock.recv(4096)
+
+            if not data:
+                print("\n[ ! ] Connection closed.")
+                break
+
+            buffer += data.decode("utf-8", errors="replace")
+
+            while "\n" in buffer:
+                message, buffer = buffer.split("\n", 1)
+                print(f"\n[<] {message}")
+
+    except OSError as error:
+        print(f"\n[ ! ] Connection lost: {error}")
+
+
+if not 1 <= PORT <= 65535:
+    print("[ :( ] Invalid port!")
+    raise SystemExit(1)
+
+
+if mode == "h":
+    print("\n=== HOST MODE ===")
+    print("Listening on all local interfaces.")
+    print("Give your peer your private IPv4 address and port.")
+    print("Both peers must be on the same LAN or connected VPN.\n")
 
     try:
         server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         server.bind((HOST, PORT))
         server.listen(1)
-    except Exception as e:
-        print("[ :( ] Error!", e)
-        exit()
 
-    print("[ . . . ] PeerMan waiting for connection...")
-    conn, addr = server.accept()
-    print("[ :) ] Connected:", addr)
+        print(f"[ . . . ] PeerMan listening on port {PORT}...")
+        conn, addr = server.accept()
+        print(f"[ :) ] Connected: {addr[0]}:{addr[1]}")
 
-elif mode == 'c':
-    # CLIENT MODE
-    print(r"=== CLIENT MODE ===")
-    remote_host = input("Enter the host's IP address: ")
+    except OSError as error:
+        print(f"[ :( ] Host error: {error}")
+        raise SystemExit(1)
+
+elif mode == "c":
+    print("\n=== CLIENT MODE ===")
+    remote_host = input("Enter the host's private IPv4 address: ").strip()
+
+    if not is_private_ip(remote_host):
+        print("[ :( ] Enter a valid private IPv4 address.")
+        raise SystemExit(1)
 
     try:
         conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        conn.settimeout(10)
+
         print(f"[ . . . ] Connecting to {remote_host}:{PORT}...")
         conn.connect((remote_host, PORT))
-        print("[ :) ] Connected!")
-    except Exception as e:
-        print("[ :( ] Connection failed!", e)
-        exit()
+        conn.settimeout(None)
 
-    server = None
+        print("[ :) ] Connected!")
+
+    except OSError as error:
+        print(f"[ :( ] Connection failed: {error}")
+        raise SystemExit(1)
+
 else:
     print("[ :( ] Invalid mode!")
-    exit()
+    raise SystemExit(1)
 
 
-def receive_messages():
+try:
+    threading.Thread(
+        target=receive_messages,
+        args=(conn,),
+        daemon=True
+    ).start()
+
+    exit_code = secrets.token_hex(3)
+    print(f"Send this code to disconnect gracefully: {exit_code}")
+
     while True:
         try:
-            data = conn.recv(4096)
-
-            if not data:
-                print("\n[ ! ] Connection closed.")
-                break
-
-            print(f"\n[<] {data.decode()}")
-            print(f"peerman_i{HOST}_p{PORT}-$ ", end="", flush=True)
-
-        except Exception as e:
-            print("\n[ ! ] Connection lost:", e)
+            message = input("peerman-$ ")
+        except (EOFError, KeyboardInterrupt):
             break
 
+        if message == exit_code:
+            send_message(
+                conn,
+                "The peer has disconnected. Thank you for using PeerMan!"
+            )
+            print("Disconnecting from PeerMan...")
+            time.sleep(0.2)
+            break
 
-threading.Thread(target=receive_messages, daemon=True).start()
+        try:
+            send_message(conn, message)
+        except OSError as error:
+            print(f"[ :( ] Send failed: {error}")
+            break
 
-exit_code = secrets.token_hex(3)
-print(f"Send the following hash to exit: {exit_code}")
+finally:
+    if conn:
+        conn.close()
 
-while True:
-    message = input(f"peerman_i{HOST}_p{PORT}-# ")
+    if server:
+        server.close()
 
-    if message == exit_code:
-        message = "The host has disconnected! Thank you for using this service!"
-        conn.sendall(message.encode())
-
-        print("You have disconnected from the server! Thank you for using this service!")
-
-        time.sleep(2)
-        break
-
-    conn.sendall(message.encode())
-
-conn.close()
-if server:
-    server.close()
+    print("PeerMan closed.")
